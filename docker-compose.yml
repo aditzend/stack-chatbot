@@ -1,0 +1,133 @@
+# bot_trainer
+#
+version: "3.8"
+
+networks:
+  private:
+  common:
+    external: true
+    name: ${COMMON_NET-common_public}
+  proxy:
+    external: true
+    name: ${PROXY_NET-traefik_net}
+    
+ 
+volumes:
+  rasa_data:
+  rasa_actions_data:
+  db_data:
+  filebrowser_data:
+
+services:
+  actions:
+    image: rasa/rasa-sdk:2.1.2
+    networks:
+      - private
+    volumes:
+      - rasa_actions_data:/app/actions
+    command:
+      - start
+      - --debug
+      - --actions
+      - actions
+    environment:
+      - BF_URL=http://bottrainer:3000/graphql
+      
+
+  bottrainer:
+    #Ante problemas usar la original
+    #image: bottrainer/bottrainer:v1.0.6-patch.1
+    image: ${BOT_TRAINER_IMAGE-alexanderditzend/bot_trainer:1.0.0}
+    
+    networks:
+      - private
+    ports:
+      - "${STACK_CODE-400}00:3000"
+    #volumes:
+     # - rasa_data:/app/models:ro
+    environment:
+      - PORT=3000
+      - BF_URL=http://bottrainer:3000/graphql
+      - ROOT_URL=http://${DOMAIN-192.168.43.169}:${STACK_CODE-400}00
+      - AUGMENTATION_FACTOR=${RASA_AUGMENTATION_FACTOR-50}
+      - MONGO_URL=${MONGO_URL-mongodb://mongo:27017/bf}
+        
+  duckling:
+    image: ${DUCKLING_IMAGE-botfront/duckling}
+    networks:
+      - private
+
+  etl:
+    image: ${ETL_IMAGE-alexanderditzend/analytics_etl:1.1.0-distroless}
+    environment:
+      - BOT_ID={{index .Service.Labels "com.docker.stack.namespace"}}
+      - MAIN_RASA_API_URL=http://rasa:5005 
+      - MAIN_EXCLUDED_INTENTS=${ETL_MAIN_EXCLUDED_INTENTS-["info"]}
+      - ANALYTICS_API_URL=${ETL_ANALYTICS_API_URL-http://common_analytics:8055}
+      - MITACD_API_URL=${ETL_MITACD_API_URL-http://common_mitacd_api:4000}
+      - TIME_ZONE=${ETL_TIME_ZONE-America/Argentina/Buenos_Aires}
+      - LOCALE=${ETL_LOCALE-es-AR}
+      - INTERACTION_MEAN_LENGTH_IN_MS=${ETL_INTERACTION_MEAN_LENGTH_IN_MS-5000}
+      - MAX_ATTEMPTS=${ETL_MAX_ATTEMPTS-100}
+      - MAX_SYNC_OFFSET=${ETL_MAX_SYNC_OFFSET-3}
+      - RABBITMQ_HOST=${ETL_RABBITMQ_HOST-amqp://common_rabbitmq:5672}
+      - RABBITMQ_QUEUE={{index .Service.Labels "com.docker.stack.namespace"}}_etl}
+      - BOT_WAKE_UP_WORD=${ETL_BOT_WAKE_UP_WORD-/start}
+      - ESCAPED_COMMANDS=${ETL_ESCAPED_COMMANDS-["t"]}
+      - SYSTEM_NAME=${ETL_SYSTEM_NAME-MitACD}
+      - LOG_LEVEL=${ETL_LOG_LEVEL-debug}
+    networks:
+      - private
+      - common
+      
+  filebrowser:
+    image: hurlenko/filebrowser
+    labels:
+      com.docker.stack.service.path: ""
+      traefik.enable: "true"
+    environment:
+      FB_BASEURL: "/{{ index .Service.Labels `com.docker.stack.namespace`}}/"
+    volumes:
+      - rasa_data:/data/{{index .Service.Labels "com.docker.stack.namespace"}}_rasa_models
+      - rasa_actions_data:/data/{{index .Service.Labels "com.docker.stack.namespace"}}_rasa_actions
+      - filebrowser_data:/config
+    networks:
+      - proxy
+
+  mongo:
+    image: ${MONGO_IMAGE-mongo}
+    networks:
+      - private
+    volumes:
+      - db_data:/data/db
+    # environment:
+    #   - BF_PROJECT_ID=${BF_PROJECT_ID-X5oK2rmS2GZTQ87Lk}
+    #   - BF_URL=http://bottrainer:3000/graphql
+    #   - ROOT_URL=http://${DOMAIN-192.168.43.169}:${STACK_CODE-400}00
+    #   - AUGMENTATION_FACTOR=50
+    #   - MONGO_URL=mongodb://mongo:27017/bf
+  
+  rasa:
+    image: ${RASA_IMAGE-bottrainer/rasa-for-bottrainer:v2.3.3-bf.3}
+    networks:
+      - private
+      - common
+    ports:
+      - "${STACK_CODE-400}05:5005"
+    volumes:
+      - rasa_data:/app/models
+    environment:
+      - BF_PROJECT_ID=${BF_PROJECT_ID-X5oK2rmS2GZTQ87Lk}
+      - BF_URL=http://bottrainer:3000/graphql
+      - ROOT_URL=http://${DOMAIN-192.168.43.169}:${STACK_CODE-400}00
+      - AUGMENTATION_FACTOR=${RASA_AUGMENTATION_FACTOR-50}
+      - MONGO_URL=${MONGO_URL-mongodb://mongo:27017/bf}
+
+
+      
+
+     
+
+      
+
+
